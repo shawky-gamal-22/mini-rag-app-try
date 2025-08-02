@@ -6,6 +6,7 @@ from models.ChunkModel import ChunkModel
 from models import ResponseSignal
 from controllers import NLPController
 import logging
+from tqdm.auto import tqdm
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -18,7 +19,7 @@ nlp_router = APIRouter(
 
 
 @nlp_router.post("/index/push/{project_id}")
-async def index_project(request: Request, project_id: str, push_request: PushRequest):
+async def index_project(request: Request, project_id: int, push_request: PushRequest):
 
     project_model = await ProjectModel.create_instance(request.app.db_client) # get the project model from the request app's db_client
 
@@ -51,9 +52,27 @@ async def index_project(request: Request, project_id: str, push_request: PushReq
     inserted_items_count =0
     idx= 0
 
+
+    # create collection if not exists
+    collection_name = nlp_controller.create_collection_name(project_id=project.project_id)
+
+    _ = await request.app.vectordb_client.create_collection(
+        collection_name = collection_name,
+        embedding_size= request.app.embedding_client.embedding_size,
+        do_reset = push_request.do_reset,
+
+    )
+    
+
+    # setup batching 
+
+    total_chunks_count = await chunk_model.get_total_chunks_count(project_id=project.project_id)
+    pbar = tqdm(total=total_chunks_count, desc="Vector Indexing", position=0)
+
+
     while has_records:
 
-        page_chunks = await chunk_model.get_project_chunks(project_id= project.id,page_no=page_no)
+        page_chunks = await chunk_model.get_project_chunks(project_id= project.project_id,page_no=page_no)
 
         if len(page_chunks):
             page_no +=1
@@ -62,14 +81,13 @@ async def index_project(request: Request, project_id: str, push_request: PushReq
             has_records = False
             break
 
-        chunks_ids = list(range(idx, idx+len(page_chunks)))
+        chunks_ids = [ c.chunk_id for c in page_chunks ]
         idx += len(page_chunks)
 
-        is_inserted = nlp_controller.index_into_vector_db(
+        is_inserted = await nlp_controller.index_into_vector_db(
             chunks_ids= chunks_ids,
             project= project,
             chunks=page_chunks,
-            do_reset= push_request.do_reset
         )
 
         if not is_inserted:
@@ -80,7 +98,8 @@ async def index_project(request: Request, project_id: str, push_request: PushReq
             }
         )
 
-        inserted_items_count +=1
+        pbar.update(len(page_chunks))
+        inserted_items_count += len(page_chunks)
 
     
     return JSONResponse(
@@ -95,7 +114,7 @@ async def index_project(request: Request, project_id: str, push_request: PushReq
 
 
 @nlp_router.get("/index/info/{project_id}")
-async def get_project_index_info(request: Request, project_id: str):
+async def get_project_index_info(request: Request, project_id: int):
 
     project_model = await ProjectModel.create_instance(request.app.db_client) # get the project model from the request app's db_client
 
@@ -109,7 +128,7 @@ async def get_project_index_info(request: Request, project_id: str):
         template_parser= request.app.template_parser
     )
 
-    collection_info = nlp_controller.get_vector_db_collection_info(
+    collection_info = await nlp_controller.get_vector_db_collection_info(
         project= project
     )
 
@@ -122,7 +141,7 @@ async def get_project_index_info(request: Request, project_id: str):
 
 
 @nlp_router.post("/index/search/{project_id}")
-async def search_index(request: Request, project_id: str, search_request:SearchRequest):
+async def search_index(request: Request, project_id: int, search_request:SearchRequest):
     
     
     project_model = await ProjectModel.create_instance(request.app.db_client) # get the project model from the request app's db_client
@@ -137,7 +156,7 @@ async def search_index(request: Request, project_id: str, search_request:SearchR
         template_parser = request.app.template_parser
     )
 
-    results = nlp_controller.search_vector_db_collection(
+    results = await nlp_controller.search_vector_db_collection(
         project= project,
         text= search_request.text,
         limit= search_request.limit
@@ -160,7 +179,7 @@ async def search_index(request: Request, project_id: str, search_request:SearchR
 
 
 @nlp_router.post("/index/answer/{project_id}")
-async def answer_rag(request: Request, project_id: str, search_request:SearchRequest):
+async def answer_rag(request: Request, project_id: int, search_request:SearchRequest):
     
     
     project_model = await ProjectModel.create_instance(request.app.db_client) # get the project model from the request app's db_client
@@ -175,7 +194,7 @@ async def answer_rag(request: Request, project_id: str, search_request:SearchReq
         template_parser = request.app.template_parser
     )
 
-    answer, full_prompt, chat_history = nlp_controller.answer_rag_question(
+    answer, full_prompt, chat_history = await nlp_controller.answer_rag_question(
         project= project,
         query=search_request.text,
         limit= search_request.limit

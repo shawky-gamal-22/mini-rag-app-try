@@ -2,6 +2,7 @@ from ..LLMInterface import LLMInterface
 from openai import OpenAI
 import logging
 from ..LLMEnums import OpenAIEnum
+from typing import List, Union
 
 class OpenAIProvider(LLMInterface):
 
@@ -76,13 +77,16 @@ class OpenAIProvider(LLMInterface):
 
 
 
-    def embed_text(self, text: str, document_type: str= None) -> list:
+    def embed_text(self, text: Union[str, List[str]], document_type: str= None) -> list:
         if not self.embedding_model_id:
             raise ValueError("Embedding model is not set.")
         
         if not self.client:
             self.logger.error("OpenAI client is not initialized.")
             return None
+        
+        if isinstance(text, str):
+            text = [text]
         
         respose = self.client.embeddings.create(
             model=self.embedding_model_id,
@@ -93,13 +97,14 @@ class OpenAIProvider(LLMInterface):
             self.logger.error("Failed to generate embedding.")
             return None
         
-        return respose.data[0].embedding
+
+        return [rec.embedding for rec in respose.data]
     
     
     def construct_prompt(self, prompt: str, role: str):
         return {
             "role": role,
-            "content": self.process_text(prompt)
+            "content": prompt
         }
     
 

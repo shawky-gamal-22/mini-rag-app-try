@@ -11,3 +11,16 @@ motor==3.7.1
 openai==1.91.0
 cohere== 5.15.0
 qdrant-client== 1.14.3
+SQLAlchemy==2.0.41
+asyncpg==0.30.0
+alembic==1.16.4
+psycopg2==2.9.10
+pgvector==0.4.1
+nltk==3.9.1
+
+# Monitoring and Metrics 
+prometheus-client==0.22.1
+starlette-exporter==0.23.0
+
+# Health Checks
+fastapi-health==0.4.0
